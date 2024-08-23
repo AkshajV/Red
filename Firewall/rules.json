@@ -1,0 +1,5 @@
+{
+    "BannedPorts": [80],
+    "BlockPingAttacks": "True"
+   
+}

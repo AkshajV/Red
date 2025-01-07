@@ -13,9 +13,9 @@ function App() {
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
           <Routes>
             <Route path="/login" element={<Login setIsLoggedIn={setIsLoggedIn} />} />
-            <Route 
-              path="/" 
-              element={isLoggedIn ? <Home /> : <Navigate to="/login" replace />} 
+            <Route
+              path="/"
+              element={isLoggedIn ? <Home /> : <Navigate to="/login" replace />}
             />
           </Routes>
         </div>
@@ -25,4 +25,3 @@ function App() {
 }
 
 export default App;
-

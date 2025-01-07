@@ -5,8 +5,7 @@ import AddPassword from './AddPassword';
 
 function Home() {
   const [passwords, setPasswords] = useState([
-    { id: 1, site: 'example.com', username: 'user1', password: 'pass1' },
-    { id: 2, site: 'test.com', username: 'user2', password: 'pass2' },
+    
   ]);
   const [searchTerm, setSearchTerm] = useState('');
 

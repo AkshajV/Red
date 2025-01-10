@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import * as faceapi from 'face-api.js';
-import * as tf from '@tensorflow/tfjs';
 import { Camera, UserPlus, LogIn, AlertCircle } from 'lucide-react';
 
 const FaceAuth = ({ onAuthenticated }) => {
@@ -14,12 +13,10 @@ const FaceAuth = ({ onAuthenticated }) => {
     const loadModels = async () => {
       try {
         const MODEL_URL = '/weights';
-        console.log(`TensorFlow.js version: ${tf.version_core}`);
         await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
         await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
         await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
         setIsVideoLoaded(true);
-        console.log("Models loaded successfully");
       } catch (error) {
         console.error("Error loading models:", error);
         setStatusMessage("Failed to load models. Check console for details.");
@@ -30,15 +27,7 @@ const FaceAuth = ({ onAuthenticated }) => {
 
     const startVideo = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            width: 640,
-            height: 480,
-            facingMode: "user",
-            exposure: { ideal: 0.5 },
-            brightness: { ideal: 0.5 }
-          }
-        });
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
         videoRef.current.srcObject = stream;
       } catch (error) {
         console.error("Error accessing webcam:", error);
@@ -49,7 +38,7 @@ const FaceAuth = ({ onAuthenticated }) => {
     startVideo();
 
     return () => {
-      // Stop video stream when the component unmounts or authentication finishes
+      // Stop video stream when the component unmounts
       if (videoRef.current && videoRef.current.srcObject) {
         const stream = videoRef.current.srcObject;
         const tracks = stream.getTracks();
@@ -63,7 +52,10 @@ const FaceAuth = ({ onAuthenticated }) => {
     setIsProcessing(true);
 
     try {
-      const detections = await faceapi.detectSingleFace(videoRef.current).withFaceLandmarks().withFaceDescriptor();
+      const detections = await faceapi
+        .detectSingleFace(videoRef.current)
+        .withFaceLandmarks()
+        .withFaceDescriptor();
 
       if (detections) {
         const descriptor = detections.descriptor;
@@ -77,15 +69,16 @@ const FaceAuth = ({ onAuthenticated }) => {
             },
             body: JSON.stringify({
               username: userName,
-              password: "default_password",  // Default password for now (you can make this more dynamic)
-              faceDescriptors: Array.from(descriptor),
+              password: "default_password",
+              faceDescriptors: [Array.from(descriptor)],
             }),
           });
 
           if (response.ok) {
             setStatusMessage(`Enrolled user "${userName}" successfully.`);
           } else {
-            setStatusMessage("Failed to enroll user.");
+            const data = await response.json();
+            setStatusMessage(data.message || "Failed to enroll user.");
           }
         }
       } else {
@@ -104,41 +97,29 @@ const FaceAuth = ({ onAuthenticated }) => {
     setIsProcessing(true);
 
     try {
-      const detections = await faceapi.detectSingleFace(videoRef.current).withFaceLandmarks().withFaceDescriptor();
+      const detections = await faceapi
+        .detectSingleFace(videoRef.current)
+        .withFaceLandmarks()
+        .withFaceDescriptor();
 
       if (detections) {
         const descriptor = detections.descriptor;
-        const labeledDescriptors = await loadLabeledDescriptors();
 
-        if (labeledDescriptors.length > 0) {
-          const faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6);
-          const bestMatch = faceMatcher.findBestMatch(descriptor);
+        const response = await fetch("http://localhost:5000/login", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ username: "", faceDescriptors: [Array.from(descriptor)] }),
+        });
 
-          console.log("Username from face matcher:", bestMatch.label); // Log the matched username
-          console.log("Face descriptors from video:", descriptor); // Log the face descriptors being sent
-
-          if (bestMatch.label !== "unknown") {
-            const response = await fetch("http://localhost:5000/login", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ username: bestMatch.label, faceDescriptors: descriptor }),
-            });
-
-            const data = await response.json(); // Parse the response as JSON
-
-            if (response.ok) {
-              setStatusMessage(`Welcome, ${bestMatch.label}!`);
-              onAuthenticated();
-            } else {
-              setStatusMessage(data.message || "Face recognition failed.");
-            }
-          } else {
-            setStatusMessage("Face not recognized. Access denied.");
-          }
+        if (response.ok) {
+          const data = await response.json();
+          setStatusMessage(`Welcome, ${data.username}!`);
+          onAuthenticated();
         } else {
-          setStatusMessage("No enrolled users found. Please enroll a face first.");
+          const errorData = await response.json();
+          setStatusMessage(errorData.message || "Face recognition failed.");
         }
       } else {
         setStatusMessage("No face detected. Please try again.");
@@ -148,22 +129,6 @@ const FaceAuth = ({ onAuthenticated }) => {
       setStatusMessage("An error occurred during login. Please try again.");
     } finally {
       setIsProcessing(false);
-    }
-  };
-
-  const loadLabeledDescriptors = async () => {
-    const storedDescriptors = JSON.parse(localStorage.getItem("faceDescriptors") || "[]");
-    return storedDescriptors.map((item) => {
-      return new faceapi.LabeledFaceDescriptors(item.label, [new Float32Array(item.descriptor)]);
-    });
-  };
-
-  const stopWebcam = () => {
-    if (videoRef.current && videoRef.current.srcObject) {
-      const stream = videoRef.current.srcObject;
-      const tracks = stream.getTracks();
-      tracks.forEach((track) => track.stop());
-      console.log("Webcam stopped.");
     }
   };
 
@@ -178,45 +143,27 @@ const FaceAuth = ({ onAuthenticated }) => {
         )}
       </div>
       <div className="flex justify-center space-x-4">
-        <button
-          onClick={() => setMode("enroll")}
-          className={`px-4 py-2 rounded-md transition-colors ${mode === "enroll" ? "bg-purple-600 text-white" : "bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200"}`}
-        >
-          <UserPlus className="inline-block mr-2 h-5 w-5" />
-          Enroll Face
+        <button onClick={() => setMode("enroll")} className={`px-4 py-2 ${mode === "enroll" ? "bg-purple-600 text-white" : "bg-gray-200 text-gray-700"}`}>
+          <UserPlus className="inline-block mr-2 h-5 w-5" /> Enroll Face
         </button>
-        <button
-          onClick={() => setMode("login")}
-          className={`px-4 py-2 rounded-md transition-colors ${mode === "login" ? "bg-purple-600 text-white" : "bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200"}`}
-        >
-          <LogIn className="inline-block mr-2 h-5 w-5" />
-          Login
+        <button onClick={() => setMode("login")} className={`px-4 py-2 ${mode === "login" ? "bg-purple-600 text-white" : "bg-gray-200 text-gray-700"}`}>
+          <LogIn className="inline-block mr-2 h-5 w-5" /> Login
         </button>
       </div>
       <div className="flex justify-center">
         {mode === "enroll" && (
-          <button
-            onClick={enrollFace}
-            disabled={isProcessing}
-            className="px-6 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors disabled:opacity-50"
-          >
-            <Camera className="inline-block mr-2 h-5 w-5" />
-            Capture and Enroll
+          <button onClick={enrollFace} className="px-6 py-2 bg-green-500 text-white rounded-md hover:bg-green-600">
+            <Camera className="inline-block mr-2 h-5 w-5" /> Enroll
           </button>
         )}
         {mode === "login" && (
-          <button
-            onClick={loginFace}
-            disabled={isProcessing}
-            className="px-6 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors disabled:opacity-50"
-          >
-            <LogIn className="inline-block mr-2 h-5 w-5" />
-            Authenticate
+          <button onClick={loginFace} className="px-6 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600">
+            <LogIn className="inline-block mr-2 h-5 w-5" /> Authenticate
           </button>
         )}
       </div>
       {statusMessage && (
-        <div className={`text-center p-2 rounded-md ${statusMessage.includes("successfully") || statusMessage.includes("Welcome") ? "bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100" : "bg-red-100 text-red-800 dark:bg-red-800 dark:text-red-100"}`}>
+        <div className={`text-center p-2 ${statusMessage.includes("successfully") ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
           <AlertCircle className="inline-block mr-2 h-5 w-5" />
           {statusMessage}
         </div>
